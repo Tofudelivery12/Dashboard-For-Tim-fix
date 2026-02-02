@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dashboard for tim</title>
+<script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui-touch-punch/0.2.3/jquery.ui.touch-punch.min.js"></script>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+
+<style>
+:root {
+  --blue: #4dabf7;
+  --blue-dark: #339af0;
+  --red: #ff6b6b;
+  --red-dark: #fa5252;
+  --bg: #eef2f7;
+  --card: #ffffff;
+  --border: #ced4da;
+  --text: #343a40;
+  --muted: #adb5bd;
+}
+
+body {
+  font-family: "Prompt", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 20px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  /* ───────── PROTOBOARD BACKGROUND ───────── */
+  background-color: #e0e0e0; /* สีพื้นของแผ่นปริ้นซ์ */
+  background-image: 
+    /* สร้างลายจุดทองแดง (Holes) */
+    radial-gradient(#b0b0b0 2px, transparent 2px), 
+    /* สร้างลายเส้นตารางจางๆ */
+    linear-gradient(to right, #d4d4d4 1px, transparent 1px),
+    linear-gradient(to bottom, #d4d4d4 1px, transparent 1px);
+  
+  /* ขนาดของตาราง (ปรับค่า 25px เพื่อขยายหรือย่อระยะห่างจุด) */
+  background-size: 25px 25px, 25px 25px, 25px 25px;
+  background-position: center center;
+}
+
+/* ───────── HEADER (TOP CONTROLS) ───────── */
+#top-controls {
+  display: grid;
+  /* แบ่ง 3 คอลัมน์: ซ้าย(1ส่วน) กลาง(เนื้อหา) ขวา(1ส่วน) */
+  grid-template-columns: 1fr auto 1fr; 
+  align-items: center;
+  background: var(--card);
+  border-radius: 14px;
+  padding: 15px 30px;
+  margin-bottom: 20px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  gap: 20px;
+}
+
+#mqtt-status {
+  justify-self: start; /* ชิดซ้าย */
+  padding: 15px 16px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 13px;
+  min-width: 130px;
+  text-align: center;
+}
+.connected { background: var(--blue); color: white; }
+.disconnected { background: #adb5bd; color: white; }
+
+.top-center { 
+  text-align: center; 
+}
+.title-main { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.2; }
+.title-sub { font-size: 15px; color: #6c757d; margin-top: 2px; }
+
+.right-controls { 
+  justify-self: end; /* ชิดขวา */
+  display: flex; 
+  gap: 8px; 
+}
+
+.top-btn {
+  background: var(--blue); color: white; border: none;
+  padding: 10px 16px; border-radius: 10px; cursor: pointer;
+  font-size: 14px; font-weight: bold; transition: 0.2s;
+  display: flex; align-items: center; gap: 5px;
+}
+.top-btn:hover { background: var(--blue-dark); transform: translateY(-1px); }
+.btn-danger { background: var(--red); }
+.btn-danger:hover { background: var(--red-dark); }
+
+/* ───────── WORKSPACE ───────── */
+#workspace {
+  position: relative;
+  width: 100%;
+  min-height: 75vh;
+}
+
+.control-box {
+  box-sizing: border-box;
+  background: var(--card);
+  border-radius: 16px;
+  padding: 14px;
+  width: 220px;
+  min-height: 180px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+}
+
+.label {
+  font-weight: bold; margin-bottom: 12px;
+  cursor: move; padding-right: 15px;
+  user-select: none; border-bottom: 1px solid #f1f3f5; padding-bottom: 8px;
+}
+
+.remove-btn {
+  position: absolute; top: 5px; right: 5px;
+  width: 30px; height: 30px; background: transparent;
+  color: var(--muted); border: none; cursor: pointer;
+  font-size: 22px; font-weight: bold;
+}
+
+/* ───────── WIDGETS ───────── */
+.cube-switch {
+  width: 80px; height: 40px; border-radius: 20px; background: #ced4da;
+  position: relative; cursor: pointer; margin: 15px auto; transition: 0.3s;
+}
+.cube-switch.on { background: var(--blue); }
+.slider-sw {
+  position: absolute; top: 4px; left: 4px; width: 32px; height: 32px;
+  background: white; border-radius: 50%; transition: 0.3s;
+}
+.cube-switch.on .slider-sw { transform: translateX(40px); }
+
+.vr-wrapper { width: 100%; padding-top: 10px; }
+/* 1. ตัว Slider หลัก (กำหนดความสูงและสีราง) */
+.vr-slider { 
+  -webkit-appearance: none; /* ปิดหน้าตาปกติของบราวเซอร์ */
+  width: 100%; 
+  height: 8px;              /* ความหนาของราง */
+  background: #dee2e6;      /* <--- เปลี่ยนสีราง (Track) ที่ตรงนี้ */
+  border-radius: 5px; 
+  outline: none; 
+  margin: 15px 0; 
+}
+
+/* 2. สำหรับ Chrome, Safari, Edge (เปลี่ยนสีรางขณะเลื่อน - ถ้าต้องการ) */
+.vr-slider::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 8px;
+  cursor: pointer;
+  background: #ced4da;      /* <--- สีรางสำหรับ Chrome */
+  border-radius: 5px;
+}
+
+/* 3. ส่วนของ ปุ่มเลื่อน (Thumb) */
+.vr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 22px;
+  width: 22px;
+  border-radius: 50%;
+  background: var(--blue);  /* สีปุ่มเลื่อน (ใช้สีฟ้าตามที่คุณตั้งไว้) */
+  cursor: pointer;
+  margin-top: -7px;         /* จัดให้อยู่กลางราง ( (22-8)/2 ) */
+  border: 2px solid white;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* 4. สำหรับ Firefox (เปลี่ยนสีราง) */
+.vr-slider::-moz-range-track {
+  background: #ced4da;      /* <--- สีรางสำหรับ Firefox */
+  height: 8px;
+  border-radius: 5px;
+}
+
+.gauge-value-box {
+  background: #f8f9fa; border-radius: 10px; padding: 5px 10px;
+  font-weight: bold; margin-top: 10px; font-size: 14px; border: 1px solid #eee;
+}
+
+/* ───────── MOBILE MODE ───────── */
+body.mobile #top-controls { 
+  display: flex; flex-direction: column; padding: 20px; gap: 15px; 
+}
+body.mobile #mqtt-status { justify-self: center; width: 100%; }
+body.mobile .right-controls { width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr; }
+body.mobile .top-btn { justify-content: center; }
+body.mobile .control-box {
+  position: relative !important; top: auto !important; left: auto !important;
+  width: 100% !important; margin-bottom: 15px;
+}
+
+.modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); }
+.modal-content { background: white; margin: 15% auto; padding: 25px; border-radius: 14px; width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+.modal input, .modal select { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: 1px solid var(--border); box-sizing: border-box; }
+
+@keyframes blackHole {
+  0% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    /* ดูดไปที่กึ่งกลางหน้าจอ พร้อมหมุนและหดจนหายไป */
+    transform: translate(var(--dest-x), var(--dest-y)) scale(0) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+/* คลาสที่จะถูกเติมให้บล็อกตอนสั่งลบ */
+.sucking {
+  animation: blackHole 0.8s ease-in forwards;
+  pointer-events: none; /* ป้องกันการกดระหว่างเล่นเอฟเฟกต์ */
+}
+
+</style>
+</head>
+<body>
+
+<div id="top-controls">
+  <div id="mqtt-status" class="disconnected">🔴 Disconnected</div>
+  
+  <div class="top-center">
+    <div class="title-main">แผนกอิเล็กทรอนิกส์</div>
+    <div class="title-sub">วิทยาลัยเทคนิคอำนาจเจริญ</div>
+  </div>
+  
+  <div class="right-controls">
+    <button id="change-topic" class="top-btn" title="Set Topic"> ตั้งค่า Topic</button>
+    <button id="clear-all" class="top-btn btn-danger"> ล้างทั้งหมด</button>
+    <button id="add-switch" class="top-btn"> เพิ่มอุปกรณ์</button>
+  </div>
+</div>
+
+<div id="workspace"></div>
+
+<div id="topic-panel" class="modal">
+  <div class="modal-content">
+    <h3 style="margin-top:0">ตั้งค่า MQTT Topic</h3>
+    <input type="text" id="prefix-input" placeholder="เช่น R2M">
+    <div style="display:flex; justify-content: space-between; margin-top: 20px;">
+      <button onclick="$('#topic-panel').fadeOut()" style="border:none; background:#eee; padding:10px 20px; border-radius:8px; cursor:pointer">ยกเลิก</button>
+      <button id="topic-confirm" class="top-btn" style="padding:10px 20px">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<div id="add-panel" class="modal">
+  <div class="modal-content">
+    <h3 style="margin-top:0">เพิ่มอุปกรณ์</h3>
+    <input type="text" id="new-name" placeholder="ชื่ออุปกรณ์">
+    
+    <select id="new-type">
+      <option value="1">Switch (สวิตช์)</option>
+      <option value="2">Graph (กราฟ)</option>
+      <option value="3">VR Slider (เลื่อนแนวนอน)</option>
+    </select>
+
+    <div id="graph-only-fields" style="display:none">
+      <input type="number" id="new-id" placeholder="ระบุ ID (เช่น 1, 2)">
+      <input type="text" id="new-unit" placeholder="หน่วย (เช่น °C, %)" value="%">
+      <select id="graph-style">
+        <option value="doughnut">เกจครึ่งวงกลม (Doughnut)</option>
+        <option value="bar">กราฟแท่ง (Bar)</option>
+      </select>
+    </div>
+
+    <div id="range-options" style="display:none">
+      <input type="number" id="new-min" placeholder="ค่าต่ำสุด" value="0">
+      <input type="number" id="new-max" placeholder="ค่าสูงสุด" value="100">
+    </div>
+
+    <div style="display:flex; justify-content: space-between; margin-top: 20px;">
+      <button onclick="$('#add-panel').fadeOut()" style="border:none; background:#eee; padding:10px 20px; border-radius:8px; cursor:pointer">ยกเลิก</button>
+      <button id="panel-confirm" class="top-btn" style="padding:10px 20px">เพิ่ม</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// (ส่วนสคริปต์คงเดิมตามตัวที่เสถียรล่าสุดของคุณ)
+let topicPrefix = localStorage.getItem("topicPrefix") || "R2M";
+let sendTopic = `${topicPrefix}/send`;
+let learnBaseTopic = `${topicPrefix}/learn/`;
+const client = mqtt.connect("wss://mqttgo.io:8084/mqtt");
+const gaugeMap = {};
+
+function updateLayoutMode() {
+  const isMobile = window.innerWidth <= 768;
+  if(isMobile) {
+    document.body.classList.add("mobile");
+    $(".control-box").css({ top:"", left:"", width:"", height:"", position:"" });
+    try { $(".control-box").draggable("destroy").resizable("destroy"); } catch(e){}
+  } else {
+    document.body.classList.remove("mobile");
+    renderFromStorage(); 
+  }
+}
+window.addEventListener("resize", updateLayoutMode);
+
+function loadData() { return JSON.parse(localStorage.getItem("devices") || "[]"); }
+function saveData(d) { localStorage.setItem("devices", JSON.stringify(d)); }
+
+client.on("connect", () => {
+  $("#mqtt-status").text("🟢 Connected").removeClass("disconnected").addClass("connected");
+  loadData().forEach(d => { if(d.type == "2") client.subscribe(`${learnBaseTopic}${d.id}`); });
+});
+
+client.on("message", (topic, msg) => {
+  if(topic.startsWith(learnBaseTopic)){
+    const id = topic.split("/").pop();
+    const val = parseFloat(msg.toString());
+    if(!isNaN(val)) updateGauge(id, val);
+  }
+});
+
+function renderFromStorage() {
+  $("#workspace").empty();
+  loadData().forEach(d => createBox(d));
+}
+
+function createBox(d, isNew = false) {
+  let inner = "";
+  if(d.type == "1") {
+    inner = `<div class="cube-switch" id="sw${d.id}" onclick="toggleSw('${d.name}',${d.id},event)"><div class="slider-sw"></div></div>`;
+  } else if(d.type == "2") {
+    inner = `<div style="flex:1; display:flex; align-items:center; justify-content:center; min-height:0"><canvas id="gauge${d.id}"></canvas></div>
+             <div class="gauge-value-box" id="val${d.id}">-- ${d.unit}</div>`;
+  } else if(d.type == "3") {
+    inner = `<div class="vr-wrapper">
+               <input type="range" class="vr-slider" min="${d.min}" max="${d.max}" value="${d.min}" oninput="handleVR('${d.name}',${d.id},this.value)">
+               <div class="gauge-value-box"><span id="vrv${d.id}">${d.min}</span></div>
+             </div>`;
+  }
+
+  const box = $(`
+    <div class="control-box" id="box${d.id}" data-unit="${d.unit||''}">
+      <button class="remove-btn" onclick="removeBox(${d.id}, event)">×</button>
+      <div class="label">${d.name} ${d.type=="2" ? "(ID:"+d.id+")" : ""}</div>
+      ${inner}
+    </div>
+  `);
+
+  $("#workspace").append(box);
+
+  if(!document.body.classList.contains("mobile")) {
+    box.css({ position:"absolute", left:d.x, top:d.y, width:d.width, height:d.height });
+    box.draggable({ 
+      handle: ".label", containment: "parent", scroll: true,
+      stop: () => savePos(d.id, box) 
+    }).resizable({ 
+      minWidth: 180, minHeight: 160, stop: () => savePos(d.id, box), 
+      resize: () => {
+         const c = box.find("canvas")[0]; if(c && gaugeMap[d.id]) gaugeMap[d.id].resize();
+      }
+    });
+  }
+
+  if(isNew) { let list = loadData(); list.push(d); saveData(list); }
+  if(d.type == "2") {
+    client.subscribe(`${learnBaseTopic}${d.id}`);
+    setTimeout(() => initChart(d), 100);
+  }
+}
+
+function removeBox(id, e) {
+  if(e) e.stopPropagation();
+  $(`#box${id}`).remove();
+  saveData(loadData().filter(item => item.id != id));
+}
+
+function toggleSw(name, id, e) {
+  const el = $(`#sw${id}`);
+  el.toggleClass("on");
+  if(client.connected) client.publish(sendTopic, `${name} ${el.hasClass("on")?'on':'off'}`);
+}
+
+function handleVR(name, id, val) {
+  $(`#vrv${id}`).text(val);
+  if(client.connected) client.publish(sendTopic, `${name} set ${val}`);
+}
+
+function initChart(d) {
+  const canvas = document.getElementById(`gauge${d.id}`);
+  if(!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const config = {
+    type: d.style || 'doughnut',
+    data: { labels: ['Value'], datasets: [{ data: [0], backgroundColor: ["#4dabf7"], borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: {legend:false, tooltip:false} }
+  };
+  if(d.style == 'doughnut') {
+    config.options.rotation = -90; config.options.circumference = 180; config.options.cutout = "75%";
+    config.data.datasets[0].data = [0, 100];
+    config.data.datasets[0].backgroundColor = ["#4dabf7", "#eee"];
+  }
+  gaugeMap[d.id] = new Chart(ctx, config);
+}
+
+function updateGauge(id, val) {
+  if(gaugeMap[id]) {
+    if(gaugeMap[id].config.type == 'doughnut') { gaugeMap[id].data.datasets[0].data = [val, 100-val]; } 
+    else { gaugeMap[id].data.datasets[0].data = [val]; }
+    gaugeMap[id].update();
+    $(`#val${id}`).text(`${val} ${$(`#box${id}`).data('unit')}`);
+  }
+}
+
+function savePos(id, box) {
+  let list = loadData();
+  let idx = list.findIndex(item => item.id == id);
+  if(idx > -1) {
+    list[idx].x = box.position().left; list[idx].y = box.position().top;
+    list[idx].width = box.outerWidth(); list[idx].height = box.outerHeight();
+    saveData(list);
+  }
+}
+
+$("#clear-all").click(function() {
+  const devices = loadData();
+  if (devices.length === 0) return; // ถ้าไม่มีบล็อกไม่ต้องทำอะไร
+
+  // ลบส่วน if (confirm) ออก เพื่อให้ทำงานทันทีที่กด
+  const centerX = window.innerWidth / 2;
+  const centerY = window.innerHeight / 2;
+
+  $(".control-box").each(function() {
+    const rect = this.getBoundingClientRect();
+    const boxCenterX = rect.left + rect.width / 2;
+    const boxCenterY = rect.top + rect.height / 2;
+
+    // คำนวณระยะทางจากบล็อกไปกึ่งกลางจอ
+    const destX = centerX - boxCenterX;
+    const destY = centerY - boxCenterY;
+
+    // ส่งค่าตำแหน่งไปยัง CSS Variables
+    $(this).css({
+      "--dest-x": `${destX}px`,
+      "--dest-y": `${destY}px`
+    });
+
+    // เริ่มเล่น Animation
+    $(this).addClass("sucking");
+  });
+
+  // รอให้แอนิเมชันจบ (0.8 วินาที) แล้วค่อยล้างข้อมูลจริง
+  setTimeout(() => {
+    localStorage.removeItem("devices");
+    location.reload();
+  }, 800);
+});
+
+$("#change-topic").click(() => { $("#prefix-input").val(topicPrefix); $("#topic-panel").fadeIn(); });
+$("#topic-confirm").click(() => {
+  topicPrefix = $("#prefix-input").val() || "R2M";
+  localStorage.setItem("topicPrefix", topicPrefix);
+  location.reload();
+});
+
+$("#add-switch").click(() => $("#add-panel").fadeIn());
+$("#new-type").change(function(){
+  const type = $(this).val();
+  $("#graph-only-fields").toggle(type == "2");
+  $("#range-options").toggle(type == "3");
+});
+
+$("#panel-confirm").click(() => {
+  const list = loadData();
+  const type = $("#new-type").val();
+  let id; let unit = "";
+  if(type == "2") {
+    const idInput = $("#new-id").val();
+    id = idInput ? parseInt(idInput) : Date.now();
+    unit = $("#new-unit").val() || "%";
+  } else { id = Date.now(); }
+  const d = { 
+    id, name: $("#new-name").val()||"Device", type: type, 
+    style: $("#graph-style").val(), unit: unit,
+    min: $("#new-min").val() || 0, max: $("#new-max").val() || 100,
+    x:20, y:20, width:220, height:180 
+  };
+  createBox(d, true);
+  $("#add-panel").fadeOut();
+  $("#new-name, #new-id, #new-unit").val("");
+});
+
+$(document).ready(() => {
+  renderFromStorage();
+  updateLayoutMode();
+});
+</script>
+</body>
+</html>
